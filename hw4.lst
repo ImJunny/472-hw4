@@ -1,0 +1,418 @@
+BACI System: C-- to PCODE Compiler in C, 11:30   1 Oct 2012
+Source file: hw4.cm  Wed Dec  4 18:45:45 2024
+ line  pc
+   1    0  //----------------------------------------------------------
+   2    0  // Name: John Nguyen
+   3    0  // Email: jnn5163@psu.edu
+   4    0  // Class: CMPSC 472-001, Fall 2024
+   5    0  //----------------------------------------------------------
+   6    0  
+   7    0  //SIMPLE variables to indicate non-hayride actions
+   8    0  int seated = 0;
+   9    0  int has_eaten = 0;
+  10    0  semaphore cout_mutex;
+  11    0  semaphore all_seated;
+  12    0  semaphore seat_mutex;
+  13    0  semaphore turkey_carved;
+  14    0  semaphore eat_mutex;
+  15    0  semaphore all_eaten;
+  16    0  semaphore excused;
+  17    0  
+  18    0  // WAITING variables
+  19    0  int r_waiting[6]; // store ids of relatives waiting
+  20    0  int c_waiting[7]; // store ids of children waiting
+  21    0  int m_waiting = 0;
+  22    0  int l_waiting = 0;
+  23    0  int r_index = 0; // increment next available index to store ids in r_waiting
+  24    0  int c_index = 0; // increment next available index to store ids in c_waiting
+  25    0  semaphore r_waiting_mutex;
+  26    0  semaphore c_waiting_mutex;
+  27    0  
+  28    0  // HAYRIDE DONE variables
+  29    0  semaphore r_done[6]; // signal/wait for semaphore based on relative ids; each id has index [id-1]
+  30    0  semaphore c_done[7]; // signal/wait for semaphore based on children ids; each id has index [id-1]
+  31    0  semaphore m_done;
+  32    0  semaphore l_done;
+  33    0  
+  34    0  // delay function to simulate time between actions
+  35    0  void Delay(void){
+  36    0      int i;
+  37    0      int DelayTime;
+  38    0      DelayTime = random(100);
+  39    4      for(i=0; i<DelayTime; i++);
+  40   19  }
+  41   20  
+  42   20  // MOTHER process
+  43   20  void Mother(){
+  44   20      while(1){
+  45   22          wait(cout_mutex);
+  46   24          cout<<"\t\tMother is making meal."<<endl;
+  47   26          signal(cout_mutex);
+  48   28          Delay();   
+  49   31  
+  50   31          wait(cout_mutex);
+  51   33          cout<<"\t\tMother is waiting for hayride."<<endl;
+  52   35          signal(cout_mutex);
+  53   37          m_waiting = 1;
+  54   40          Delay();  
+  55   43  
+  56   43          wait(m_done);
+  57   45  
+  58   45          wait(cout_mutex);
+  59   47          cout<<"\t\tMother is sitting at table."<<endl;
+  60   49          signal(cout_mutex);  
+  61   51          Delay(); 
+  62   54  
+  63   54          // increment number of seated; signal all_seated if necessary
+  64   54          wait(seat_mutex);
+  65   56          seated = seated + 1;
+  66   61          signal(seat_mutex);
+  67   63          if (seated==16) signal(all_seated);
+  68   69          
+  69   69          wait(turkey_carved);
+  70   71          wait(cout_mutex);
+  71   73          cout<<"\t\tMother is eating."<<endl;
+  72   75          signal(cout_mutex);
+  73   77          Delay(); 
+  74   80  
+  75   80          // increment number of has_eaten; signal all_eaten if necessary
+  76   80          wait(eat_mutex);
+  77   82          has_eaten = has_eaten + 1;
+  78   87          signal(eat_mutex);
+  79   89          if (has_eaten==16) signal(all_eaten);
+  80   95  
+  81   95          wait(excused);
+  82   97          wait(cout_mutex);
+  83   99          cout<<"\t\tMother goes to read her book."<<endl;
+  84  101          signal(cout_mutex);
+  85  103          Delay(); 
+  86  106  
+  87  106          break;
+  88  107      }
+  89  108  
+  90  108  }
+  91  109  
+  92  109  int fr_index = 0;
+  93  109  int fc_index = 0;
+  94  109  int hayrides = 0;
+  95  109  // helper function to signal c_done and r_done for children/relatives to proceed with tasks
+  96  109  // and update number of hayrides
+  97  109  void signalDone(int c, int r){
+  98  109      int i;
+  99  109  
+ 100  109      int j=0;
+ 101  112      for (i=0; i<c; i++){
+ 102  126          signal(c_done[c_waiting[fc_index + j]-1]);
+ 103  137          j = j+1;
+ 104  142      }
+ 105  143      j=0;
+ 106  146      for (i=0; i<r; i++){
+ 107  160          signal(r_done[r_waiting[fr_index + j]-1]);
+ 108  171          j = j+1;
+ 109  176      }
+ 110  177  
+ 111  177      fc_index = fc_index + c;
+ 112  182      fr_index = fr_index + r;
+ 113  187      hayrides = hayrides + c + r;
+ 114  194  }
+ 115  195  
+ 116  195  // FATHER process
+ 117  195  void Father(){
+ 118  195      int i;
+ 119  195      while(1){
+ 120  197          wait(cout_mutex);
+ 121  199          cout<<"\t\t\tFather is ready to give hayrides."<<endl;
+ 122  201          signal(cout_mutex);
+ 123  203          Delay(); 
+ 124  206  
+ 125  206          while(hayrides<15){
+ 126  210              // loop and first checks whether index of array is valid, then signal semaphores and update indices
+ 127  210              // 3 children
+ 128  210              if (fc_index+2<7){
+ 129  216                  if(c_waiting[fc_index]>0 && c_waiting[fc_index+1]>0 && c_waiting[fc_index+2]>0){
+ 130  241                      wait(cout_mutex);
+ 131  243                      cout<<"\t\t\tFather gives hayride to Child "<<c_waiting[fc_index]<<", ";
+ 132  250                      cout<<"Child "<<c_waiting[fc_index+1]<<", and Child "<<c_waiting[fc_index+2]<<"."<<endl;
+ 133  268                      signal(cout_mutex);
+ 134  270                      signalDone(3,0);
+ 135  275                  }
+ 136  275              // 2 children, 1 relative
+ 137  275              }else if (fc_index+1<7 && fr_index<6){
+ 138  286                  if(c_waiting[fc_index]>0 && c_waiting[fc_index+1]>0 && r_waiting[fr_index]>0){
+ 139  309                      wait(cout_mutex);
+ 140  311                      cout<<"\t\t\tFather gives hayride to Child "<<c_waiting[fc_index]<<", ";
+ 141  318                      cout<<"Child "<<c_waiting[fc_index+1]<<", and Relative "<<r_waiting[fr_index]<<"."<<endl;
+ 142  334                      signal(cout_mutex);
+ 143  336                      signalDone(2,1);
+ 144  341                  }
+ 145  341              }            
+ 146  341              // Mother, Child 8, and Child 
+ 147  341              else if (fc_index<7 && m_waiting==1 && l_waiting==1){
+ 148  354                  if (c_waiting[fc_index]>0){
+ 149  361                      wait(cout_mutex);
+ 150  363                      cout<<"\t\t\tFather gives hayride to ";
+ 151  364                      cout<<"Mother, Child 8, and Child "<<c_waiting[fc_index]<<"."<<endl;
+ 152  372                      signal(cout_mutex);
+ 153  374                      signal(m_done);
+ 154  376                      signal(l_done);
+ 155  378                      signalDone(1,0);
+ 156  383                      hayrides = hayrides + 2;
+ 157  388                  }
+ 158  388              // 2 relatives
+ 159  388              }else if (fr_index+1<6){
+ 160  395                  if (r_waiting[fr_index]>0 && r_waiting[fr_index+1]>0){
+ 161  411                      wait(cout_mutex);
+ 162  413                      cout<<"\t\t\tFather gives hayride to ";
+ 163  414                      cout<<"Relative "<<r_waiting[fr_index]<<" and Relative "<<r_waiting[fr_index+1]<<"."<<endl;
+ 164  430                      signal(cout_mutex);
+ 165  432                      signalDone(0,2);
+ 166  437                  }
+ 167  437              }else if (hayrides==13){
+ 168  442                  // Mother, Child 8
+ 169  442                  if (m_waiting==1 && l_waiting==1){
+ 170  450                      wait(cout_mutex);
+ 171  452                      cout<<"\t\t\tFather gives hayride to ";
+ 172  453                      cout<<"Mother and Child 8."<<endl;
+ 173  455                      signal(cout_mutex);
+ 174  457                      signal(m_done);
+ 175  459                      signal(l_done);
+ 176  461                      fc_index = fc_index + 1;
+ 177  466                      hayrides = hayrides + 2;
+ 178  471                  // 2 children
+ 179  471                  }else if (fc_index+1<7){
+ 180  478                      if(c_waiting[fc_index]>0 && c_waiting[fc_index+1]>0){
+ 181  494                          wait(cout_mutex);
+ 182  496                          cout<<"\t\t\tFather gives hayride to ";
+ 183  497                          cout<<"Child "<<c_waiting[fc_index]<<" and Child"<<c_waiting[fc_index]<<"."<<endl;
+ 184  511                          signal(cout_mutex);
+ 185  513                          signalDone(2,0);  
+ 186  518                      }
+ 187  518                  // 1 child, 1 relative  
+ 188  518                  }else if (fc_index<7 && fr_index<6){
+ 189  527                      if(c_waiting[fc_index]>0 && r_waiting[fr_index]>0){
+ 190  541                          wait(cout_mutex);
+ 191  543                          cout<<"\t\t\tFather gives hayride to ";
+ 192  544                          cout<<"Child "<<c_waiting[fc_index]<<" and Relative "<<r_waiting[fr_index]<<"."<<endl;
+ 193  558                          signal(cout_mutex);
+ 194  560                          signalDone(1,1);                      
+ 195  565                      }
+ 196  565                  }
+ 197  565              }else if (hayrides==14){
+ 198  570                  // 1 child
+ 199  570                  if (fc_index<7){
+ 200  574                      if(c_waiting[fc_index]>0){
+ 201  581                          wait(cout_mutex);
+ 202  583                          cout<<"\t\t\tFather gives hayride to ";
+ 203  584                          cout<<"Child"<<c_waiting[fc_index]<<"."<<endl;
+ 204  592                          signal(cout_mutex);
+ 205  594                          signalDone(1,0);                      
+ 206  599                      }
+ 207  599                  }
+ 208  599                  // 1 relative
+ 209  599                  if (fr_index<6){
+ 210  603                      if(r_waiting[fr_index]>0){
+ 211  610                          wait(cout_mutex);
+ 212  612                          cout<<"\t\t\tFather gives hayride to ";
+ 213  613                          cout<<"Relative"<<r_waiting[fr_index]<<"."<<endl;
+ 214  621                          signal(cout_mutex);
+ 215  623                          signalDone(0,1);
+ 216  628                      }
+ 217  628                  }
+ 218  628              }
+ 219  628          }
+ 220  629  
+ 221  629          wait(cout_mutex);
+ 222  631          cout<<"\t\t\tFather is sitting at table."<<endl;
+ 223  633          signal(cout_mutex);
+ 224  635          Delay(); 
+ 225  638  
+ 226  638          // increment number of seated; signal all_seated if necessary
+ 227  638          wait(seat_mutex);
+ 228  640          seated = seated + 1;
+ 229  645          signal(seat_mutex);
+ 230  647          if (seated==16) signal(all_seated);
+ 231  653          
+ 232  653          wait(all_seated);
+ 233  655          wait(cout_mutex);
+ 234  657          cout<<"\t\t\tFather carves turkey."<<endl;
+ 235  659          signal(cout_mutex);
+ 236  661          Delay(); 
+ 237  664  
+ 238  664          for(i=0; i<16; i++) signal(turkey_carved);
+ 239  681          
+ 240  681          wait(turkey_carved);
+ 241  683          wait(cout_mutex);
+ 242  685          cout<<"\t\t\tFather is eating."<<endl;
+ 243  687          signal(cout_mutex);
+ 244  689          Delay(); 
+ 245  692  
+ 246  692          // increment number of has_eaten; signal all_eaten if necessary
+ 247  692          wait(eat_mutex);
+ 248  694          has_eaten = has_eaten + 1;
+ 249  699          signal(eat_mutex);
+ 250  701          if (has_eaten==16) signal(all_eaten);
+ 251  707  
+ 252  707          wait(all_eaten);
+ 253  709          wait(cout_mutex);
+ 254  711          cout<<"\t\t\tFather excuses everyone from table."<<endl;
+ 255  713          signal(cout_mutex);
+ 256  715          Delay(); 
+ 257  718  
+ 258  718          for(i=0; i<16; i++) signal(excused);
+ 259  735  
+ 260  735          wait(excused);
+ 261  737          wait(cout_mutex);
+ 262  739          cout<<"\t\t\tFather goes to watch football."<<endl;
+ 263  741          signal(cout_mutex);
+ 264  743          Delay(); 
+ 265  746  
+ 266  746          break;
+ 267  747      }
+ 268  748  }
+ 269  749  
+ 270  749  // CHILD process
+ 271  749  void Child(int id){
+ 272  749      while(1){
+ 273  751          wait(cout_mutex);
+ 274  753          cout<<"\tChild "<<id<<" is raking leaves."<<endl;
+ 275  758          signal(cout_mutex);
+ 276  760          Delay(); 
+ 277  763  
+ 278  763          wait(cout_mutex);
+ 279  765          cout<<"\tChild "<<id<<" is waiting for hayride."<<endl;
+ 280  770          signal(cout_mutex);
+ 281  772          Delay(); 
+ 282  775  
+ 283  775          if (id!=8){
+ 284  779              wait(c_waiting_mutex);
+ 285  781              c_waiting[c_index] = id;
+ 286  786              c_index = c_index + 1;
+ 287  791              signal(c_waiting_mutex);
+ 288  793              wait(c_done[id-1]); // r_done stores semaphore at [id-1]
+ 289  799          }else{
+ 290  800              l_waiting = 1;
+ 291  803              wait(l_done);
+ 292  805          }
+ 293  805  
+ 294  805          wait(cout_mutex);
+ 295  807          cout<<"\tChild "<<id<<" is sitting at table."<<endl;
+ 296  812          signal(cout_mutex);
+ 297  814          Delay(); 
+ 298  817  
+ 299  817          // increment number of seated; signal all_seated if necessary
+ 300  817          wait(seat_mutex);
+ 301  819          seated = seated + 1;
+ 302  824          signal(seat_mutex);
+ 303  826          if (seated==16) signal(all_seated);
+ 304  832          
+ 305  832          wait(turkey_carved);
+ 306  834          wait(cout_mutex);
+ 307  836          cout<<"\tChild "<<id<<" is eating"<<endl;
+ 308  841          signal(cout_mutex);
+ 309  843          Delay(); 
+ 310  846  
+ 311  846          // increment number of has_eaten; signal all_eaten if necessary
+ 312  846          wait(eat_mutex);
+ 313  848          has_eaten = has_eaten + 1;
+ 314  853          signal(eat_mutex);
+ 315  855          if (has_eaten==16) signal(all_eaten);
+ 316  861  
+ 317  861          wait(excused);
+ 318  863          wait(cout_mutex);
+ 319  865          cout<<"\tChild "<<id<<" goes out to play."<<endl;
+ 320  870          signal(cout_mutex);
+ 321  872          Delay(); 
+ 322  875  
+ 323  875          break;
+ 324  876      }
+ 325  877  }
+ 326  878  
+ 327  878  // RELATIVE process
+ 328  878  void Relative(int id){
+ 329  878      while(1){
+ 330  880          wait(cout_mutex);
+ 331  882          cout<<"Relative "<<id<<" arrives."<<endl;
+ 332  887          signal(cout_mutex); 
+ 333  889          Delay(); 
+ 334  892  
+ 335  892          wait(cout_mutex);
+ 336  894          cout<<"Relative "<<id<<" is waiting for hayride."<<endl;
+ 337  899          signal(cout_mutex);   
+ 338  901          Delay(); 
+ 339  904  
+ 340  904          wait(r_waiting_mutex);
+ 341  906          r_waiting[r_index] = id;
+ 342  911          r_index = r_index + 1;
+ 343  916          signal(r_waiting_mutex);
+ 344  918  
+ 345  918          wait(r_done[id-1]); // r_done stores semaphore at [id-1]
+ 346  924  
+ 347  924          wait(cout_mutex);
+ 348  926          cout<<"Relative "<<id<<" is sitting at table."<<endl;
+ 349  931          signal(cout_mutex);    
+ 350  933          Delay();   
+ 351  936  
+ 352  936          // increment number of seated; signal all_seated if necessary
+ 353  936          wait(seat_mutex);
+ 354  938          seated = seated + 1;
+ 355  943          signal(seat_mutex);
+ 356  945          if (seated==16) signal(all_seated);
+ 357  951  
+ 358  951          wait(turkey_carved);
+ 359  953          wait(cout_mutex);
+ 360  955          cout<<"Relative "<<id<<" is eating."<<endl;
+ 361  960          signal(cout_mutex);
+ 362  962          Delay(); 
+ 363  965  
+ 364  965          // increment number of has_eaten; signal all_eaten if necessary
+ 365  965          wait(eat_mutex);
+ 366  967          has_eaten = has_eaten + 1;
+ 367  972          signal(eat_mutex);
+ 368  974          if (has_eaten==16) signal(all_eaten);
+ 369  980  
+ 370  980          wait(excused);
+ 371  982          wait(cout_mutex);
+ 372  984          cout<<"Relative "<<id<<" goes home."<<endl;
+ 373  989          signal(cout_mutex);
+ 374  991          Delay(); 
+ 375  994  
+ 376  994          break;  
+ 377  995      }
+ 378  996  }
+ 379  997  
+ 380  997  // MAIN
+ 381  997  main(){
+ 382  998      int j;
+ 383  998      // initialize all semaphores
+ 384  998      initialsem(cout_mutex, 1);
+ 385 1001      initialsem(all_seated,0);
+ 386 1004      initialsem(seat_mutex, 1);
+ 387 1007      initialsem(turkey_carved, 0);
+ 388 1010      initialsem(eat_mutex, 1);
+ 389 1013      initialsem(all_eaten, 0);
+ 390 1016      initialsem(excused, 0);
+ 391 1019      initialsem(r_waiting_mutex, 1);
+ 392 1022      initialsem(c_waiting_mutex, 1);
+ 393 1025      initialsem(m_done, 0);
+ 394 1028      initialsem(l_done, 0);
+ 395 1031      for (j=0; j<6; j++) initialsem(r_done[j],0);
+ 396 1051      for (j=0; j<7; j++) initialsem(c_done[j],0);
+ 397 1071      cobegin{
+ 398 1072          Mother();
+ 399 1075          Father();
+ 400 1078          Child(1);
+ 401 1082          Child(2);
+ 402 1086          Child(3);
+ 403 1090          Child(4);
+ 404 1094          Child(5);
+ 405 1098          Child(6);
+ 406 1102          Child(7);
+ 407 1106          Child(8);
+ 408 1110          Relative(1);
+ 409 1114          Relative(2);
+ 410 1118          Relative(3);
+ 411 1122          Relative(4);
+ 412 1126          Relative(5);
+ 413 1130          Relative(6);
+ 414 1134      } 
+ 415 1135  }
